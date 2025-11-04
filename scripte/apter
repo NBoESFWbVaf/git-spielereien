@@ -134,7 +134,7 @@ clean_files() {
     fi
     if command -v docker &> /dev/null; then
         echo "Unnötige Docker-Container, Images und Volumes löschen"
-        if ! docker system prune -a; then
+        if ! sudo docker system prune -a; then
             echo "Fehler: docker system prune fehlgeschlagen." >&2
         fi
     else
