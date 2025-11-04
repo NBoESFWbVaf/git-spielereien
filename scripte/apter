@@ -122,7 +122,7 @@ clean_files() {
         echo "Fehler: Löschen von /tmp/* oder /var/tmp/* fehlgeschlagen." >&2
     fi
     echo "Behält nur die letzten 50 MB an Logs"
-    if ! journalctl --vacuum-size=50M; then
+    if ! sudo journalctl --vacuum-size=50M; then
         echo "Fehler: journalctl --vacuum-size fehlgeschlagen." >&2
     fi
     echo "Alte Logs entfernen"
