@@ -1,0 +1,181 @@
+#!/bin/bash
+clear
+
+# Funktion: Timeshift-Snapshot erstellen
+create_timeshift_snapshot() {
+    local comment="$1"
+    if command -v timeshift &> /dev/null; then
+        echo "Erstelle Timeshift-Snapshot: $comment"
+        sudo timeshift --create --comments "$comment" --tags D --skip-grub
+        if [ $? -ne 0 ]; then
+            echo "Fehler: Timeshift-Snapshot fehlgeschlagen." >&2
+            return 1
+        fi
+    else
+        echo "Timeshift ist nicht installiert. Überspringe Snapshot."
+    fi
+}
+
+# Hilfe anzeigen
+show_help() {
+    echo "Verwendung: $0 [OPTION]"
+    echo "Optionen:"
+    echo "  -s, --system      Nur Systempakete aktualisieren"
+    echo "  -f, --flatpak     Nur Flatpaks aktualisieren und bereinigen"
+    echo "  -k, --kernel      Nur alte Kernel entfernen"
+    echo "  -n, --snap        Nur Snaps aktualisieren und bereinigen"
+    echo "  -c, --clean       Temporäre Dateien, Logs und Docker bereinigen"
+    echo "  -a, --all         Alle Aktionen ausführen"
+    echo "  -h, --help        Diese Hilfe anzeigen"
+    echo " Kombinationen ebenfalls möglich. Bsp: apter -s -f"
+    exit 0
+}
+
+# Systempakete aktualisieren, upgraden und bereinigen
+update_system() {
+    if ! create_timeshift_snapshot "Vor Systempaket-Aktualisierung"; then
+        return 1
+    fi
+    echo "Aktualisiere Systempakete..."
+    if ! sudo apt update; then
+        echo "Fehler: apt update fehlgeschlagen." >&2
+        return 1
+    fi
+    if ! sudo apt upgrade -y; then
+        echo "Fehler: apt upgrade fehlgeschlagen." >&2
+        return 1
+    fi
+    if ! sudo apt full-upgrade -y; then
+        echo "Fehler: apt full-upgrade fehlgeschlagen." >&2
+        return 1
+    fi
+    if ! sudo apt autoremove -y; then
+        echo "Fehler: apt autoremove fehlgeschlagen." >&2
+        return 1
+    fi
+    if ! sudo apt autoclean -y; then
+        echo "Fehler: apt autoclean fehlgeschlagen." >&2
+        return 1
+    fi
+}
+
+# Flatpaks aktualisieren und bereinigen
+update_flatpaks() {
+    if ! create_timeshift_snapshot "Vor Flatpak-Aktualisierung"; then
+        return 1
+    fi
+    if command -v flatpak &> /dev/null; then
+        echo "Aktualisiere Flatpaks..."
+        if ! flatpak update -y; then
+            echo "Fehler: flatpak update fehlgeschlagen." >&2
+        fi
+        if ! flatpak uninstall --unused --delete-data; then
+            echo "Fehler: flatpak uninstall --unused --delete-data fehlgeschlagen." >&2
+        fi
+    else
+        echo "Flatpak ist nicht installiert. Überspringe Flatpak-Aktualisierung."
+    fi
+}
+
+# Alte Kernel entfernen
+remove_old_kernels() {
+    if ! create_timeshift_snapshot "Vor Kernel-Bereinigung"; then
+        return 1
+    fi
+    echo "Suche nach alten Kernels..."
+    current_kernel=$(uname -r | sed "s/\([-0-9]*\)-\([^0-9]\+\)/\1/")
+    old_kernels=$(dpkg -l 'linux-[ihs]*' | sed '/^ii/!d;/'"$current_kernel"'/d;s/^[^ ]* [^ ]* \([^ ]*\).*/\1/;/[0-9]/!d')
+    if [ -z "$old_kernels" ]; then
+        echo "Keine alten Kernel zum Entfernen gefunden."
+        return
+    fi
+    echo "Folgende Kernel werden entfernt:"
+    echo "$old_kernels"
+    echo "$old_kernels" | xargs sudo apt-get -y purge
+}
+
+# Snaps aktualisieren und bereinigen
+update_snaps() {
+    if ! create_timeshift_snapshot "Vor Snap-Aktualisierung"; then
+        return 1
+    fi
+    if command -v snap &> /dev/null; then
+        echo "Aktualisiere Snaps..."
+        if ! sudo snap refresh; then
+            echo "Fehler: snap refresh fehlgeschlagen." >&2
+        fi
+        if ! sudo snap set system refresh.retain=2; then
+            echo "Fehler: snap set system refresh.retain fehlgeschlagen." >&2
+        fi
+    else
+        echo "Snap ist nicht installiert. Überspringe Snap-Aktualisierung."
+    fi
+}
+
+# Temporäre Dateien und Cache bereinigen
+clean_files() {
+    if ! create_timeshift_snapshot "Vor Systembereinigung"; then
+        return 1
+    fi
+    echo "Bereinige temporäre Dateien und Cache..."
+    if ! sudo rm -rf /tmp/* /var/tmp/*; then
+        echo "Fehler: Löschen von /tmp/* oder /var/tmp/* fehlgeschlagen." >&2
+    fi
+    echo "Behält nur die letzten 50 MB an Logs"
+    if ! journalctl --vacuum-size=50M; then
+        echo "Fehler: journalctl --vacuum-size fehlgeschlagen." >&2
+    fi
+    echo "Alte Logs entfernen"
+    if ! sudo find /var/log -type f -name "*.log" -exec truncate -s 0 {} \; 2>/dev/null; then
+        echo "Fehler: Löschen alter Logs fehlgeschlagen." >&2
+    fi
+    if ! sudo find /var/log -type f -name "*.gz" -delete 2>/dev/null; then
+        echo "Fehler: Löschen alter komprimierter Logs fehlgeschlagen." >&2
+    fi
+    if command -v docker &> /dev/null; then
+        echo "Unnötige Docker-Container, Images und Volumes löschen"
+        if ! docker system prune -a; then
+            echo "Fehler: docker system prune fehlgeschlagen." >&2
+        fi
+    else
+        echo "Docker ist nicht installiert. Überspringe Docker-Bereinigung."
+    fi
+}
+
+# Hauptprogramm
+main() {
+    local do_system=false
+    local do_flatpak=false
+    local do_kernel=false
+    local do_snap=false
+    local do_clean=false
+    # Wenn keine Parameter übergeben wurden, Hilfe anzeigen
+    if [ $# -eq 0 ]; then
+        show_help
+    fi
+    # Parameter auswerten
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -s|--system)   do_system=true ;;
+            -f|--flatpak)  do_flatpak=true ;;
+            -k|--kernel)   do_kernel=true ;;
+            -n|--snap)     do_snap=true ;;
+            -c|--clean)    do_clean=true ;;
+            -a|--all)      do_system=true; do_flatpak=true; do_kernel=true; do_snap=true; do_clean=true ;;
+            -h|--help)     show_help ;;
+            *)              echo "Unbekannte Option: $1"; show_help ;;
+        esac
+        shift
+    done
+    # Aktionen ausführen
+    if $do_system;  then update_system;     fi
+    if $do_flatpak; then update_flatpaks;   fi
+    if $do_kernel;  then remove_old_kernels; fi
+    if $do_snap;    then update_snaps;      fi
+    if $do_clean;   then clean_files;        fi
+    echo "Systemwartung abgeschlossen."
+}
+
+# Skript ausführen
+main "$@"
+
