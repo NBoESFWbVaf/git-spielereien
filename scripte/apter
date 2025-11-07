@@ -74,14 +74,47 @@ update_flatpaks() {
 # Alte Kernel entfernen
 remove_old_kernels() {
     echo "Suche nach alten Kernels..."
-    current_kernel=$(uname -r | sed "s/\([-0-9]*\)-\([^0-9]\+\)/\1/")
-    old_kernels=$(dpkg -l 'linux-[ihs]*' | sed '/^ii/!d;/'"$current_kernel"'/d;s/^[^ ]* [^ ]* \([^ ]*\).*/\1/;/[0-9]/!d')
+
+    # Aktuellen Kernel ermitteln
+    current_kernel=$(uname -r)
+    echo "Aktueller Kernel: $current_kernel"
+
+    # Liste aller installierten Kernel-Pakete (sortiert nach Version, neueste zuerst)
+    kernel_list=$(dpkg -l | grep 'linux-image-' | awk '{print $2}' | grep -v "linux-image-extra" | grep -v "linux-image-generic" | sort -rV)
+
+    # Falls weniger als 2 Kernel installiert sind, nichts tun
+    if [ $(echo "$kernel_list" | wc -l) -le 2 ]; then
+        echo "Weniger als 2 Kernel installiert. Keine alten Kernel zum Entfernen gefunden."
+        return
+    fi
+
+    # Die beiden neuesten Kernel behalten (aktueller und vorheriger)
+    # Der vorherige Kernel ist der zweite in der sortierten Liste (neueste zuerst)
+    previous_kernel=$(echo "$kernel_list" | sed -n '2p')
+
+    echo "Aktueller Kernel: $current_kernel"
+    echo "Vorheriger Kernel: $previous_kernel"
+
+    # Liste der zu entfernenden Kernel (alle außer den beiden neuesten)
+    old_kernels=$(echo "$kernel_list" | grep -v "$current_kernel" | grep -v "$previous_kernel")
+
     if [ -z "$old_kernels" ]; then
         echo "Keine alten Kernel zum Entfernen gefunden."
         return
     fi
-    echo "Folgende Kernel werden entfernt:"
+
+    echo "Folgende alten Kernel werden entfernt:"
     echo "$old_kernels"
+
+    # Sicherheitsabfrage (optional)
+    read -p "Möchtest du diese Kernel wirklich entfernen? [J/n] " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Jj]$ ]]; then
+        echo "Abbruch: Kernel werden nicht entfernt."
+        return
+    fi
+
+    # Kernel entfernen
     echo "$old_kernels" | xargs sudo apt-get -y purge
 }
 
