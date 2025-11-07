@@ -171,7 +171,7 @@ main() {
             -k|--kernel)   do_kernel=true ;;
             -n|--snap)     do_snap=true ;;
             -c|--clean)    do_clean=true ;;
-            -a|--all)      do_system=true; do_flatpak=true; do_snap=true; do_kernel=true; do_clean=true ;;
+            -a|--all)      do_system=true; do_flatpak=true; do_snap=true; do_clean=true ;;
             -h|--help)     show_help ;;
             *)              echo "Unbekannte Option: $1"; show_help ;;
         esac
