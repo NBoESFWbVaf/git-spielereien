@@ -139,10 +139,12 @@ clean_files() {
     if ! sudo rm -rf /tmp/* /var/tmp/*; then
         echo "Fehler: Löschen von /tmp/* oder /var/tmp/* fehlgeschlagen." >&2
     fi
+
     echo "Behält nur die letzten 50 MB an Logs"
     if ! sudo journalctl --vacuum-size=50M; then
         echo "Fehler: journalctl --vacuum-size fehlgeschlagen." >&2
     fi
+
     echo "Alte Logs entfernen"
     if ! sudo find /var/log -type f -name "*.log" -exec truncate -s 0 {} \; 2>/dev/null; then
         echo "Fehler: Löschen alter Logs fehlgeschlagen." >&2
@@ -150,28 +152,45 @@ clean_files() {
     if ! sudo find /var/log -type f -name "*.gz" -delete 2>/dev/null; then
         echo "Fehler: Löschen alter komprimierter Logs fehlgeschlagen." >&2
     fi
+
     echo "Bereinige Paketmanager-Caches..."
     if command -v apt &> /dev/null; then
         if ! sudo apt clean && sudo apt autoclean; then
             echo "Fehler: apt clean/autoclean fehlgeschlagen." >&2
         fi
     fi
+
     echo "Bereinige Benutzer-Caches für alle Benutzer..."
     if ! sudo find /home -type d -name ".cache" -exec rm -rf {} +; then
         echo "Fehler: Löschen der Benutzer-Caches fehlgeschlagen." >&2
     fi
+
     echo "Bereinige Thumbnail-Caches für alle Benutzer..."
     if ! sudo find /home -type d -name "thumbnails" -exec rm -rf {} +; then
         echo "Fehler: Löschen der Thumbnail-Caches fehlgeschlagen." >&2
     fi
+
+    # **Bereinige alte Konfigurationsdateien deinstallierter Pakete**
+    echo "Bereinige alte Konfigurationsdateien deinstallierter Pakete..."
+    if ! sudo apt-get purge $(dpkg -l | grep "^rc" | awk '{print $2}') 2>/dev/null; then
+        echo "Fehler: Löschen alter Konfigurationsdateien fehlgeschlagen." >&2
+    fi
+
+    # **Bereinige Flatpak-Caches systemweit**
     echo "Bereinige Flatpak-Caches systemweit..."
     if command -v flatpak &> /dev/null; then
         if ! sudo flatpak repair --system; then
             echo "Fehler: flatpak repair --system fehlgeschlagen." >&2
         fi
+        # **Entferne ungenutzte Flatpak-Runtimes**
+        if ! flatpak uninstall --unused --delete-data; then
+            echo "Fehler: flatpak uninstall --unused fehlgeschlagen." >&2
+        fi
     else
         echo "Flatpak ist nicht installiert. Überspringe Flatpak-Bereinigung."
     fi
+
+    # **Bereinige Docker (falls installiert)**
     if command -v docker &> /dev/null; then
         echo "Unnötige Docker-Container, Images und Volumes löschen"
         if ! sudo docker system prune -a; then
@@ -180,8 +199,62 @@ clean_files() {
     else
         echo "Docker ist nicht installiert. Überspringe Docker-Bereinigung."
     fi
+
+    # **Bereinige alte Crash-Reports (Apport)**
+    echo "Bereinige alte Crash-Reports..."
+    if ! sudo rm -rf /var/crash/* 2>/dev/null; then
+        echo "Fehler: Löschen alter Crash-Reports fehlgeschlagen." >&2
+    fi
+
+    # **Bereinige ungenutzte Sprachpakete (localepurge)**
+    echo "Bereinige ungenutzte Sprachpakete..."
+    if command -v localepurge &> /dev/null; then
+        if ! sudo localepurge 2>/dev/null; then
+            echo "Fehler: localepurge fehlgeschlagen." >&2
+        fi
+    else
+        echo "localepurge ist nicht installiert. Überspringe Bereinigung der Sprachpakete."
+    fi
+
+    # **Bereinige Python-Caches in Benutzerverzeichnissen**
+    echo "Bereinige Python-__pycache__-Ordner..."
+    if ! sudo find /home -type d -name "__pycache__" -exec rm -r {} + 2>/dev/null; then
+        echo "Fehler: Löschen der Python-Caches fehlgeschlagen." >&2
+    fi
+
+    # **Bereinige alte SSH-known_hosts-Einträge**
+    echo "Bereinige alte SSH-known_hosts-Einträge..."
+    if ! find /home -type f -name "known_hosts" -exec ssh-keygen -f {} -R {} \; 2>/dev/null; then
+        echo "Fehler: Bereinigung der SSH-known_hosts fehlgeschlagen." >&2
+    fi
+
+    # **Bereinige ungenutzte Systemd-Dienst-Logs**
+    echo "Setze fehlgeschlagene Systemd-Dienste zurück..."
+    if ! sudo systemctl reset-failed 2>/dev/null; then
+        echo "Fehler: Zurücksetzen fehlgeschlagener Systemd-Dienste fehlgeschlagen." >&2
+    fi
+
+    # **Bereinige alte Git-Repository-Caches**
+    echo "Bereinige Git-Caches in Benutzerverzeichnissen..."
+    if ! sudo find /home -type d -name ".git" -exec git gc --aggressive {} \; 2>/dev/null; then
+        echo "Fehler: Bereinigung der Git-Caches fehlgeschlagen." >&2
+    fi
+
+    # **Bereinige alte Downloads (älter als 30 Tage)**
+    #echo "Lösche alte Downloads (älter als 30 Tage)..."
+    #if ! find /home/*/Downloads -type f -atime +30 -delete 2>/dev/null; then
+    #    echo "Fehler: Löschen alter Downloads fehlgeschlagen." >&2
+    #fi
+
+    # **Bereinige ungenutzte Kernel-Module**
+    echo "Aktualisiere Kernel-Modul-Abhängigkeiten..."
+    if ! sudo depmod -a 2>/dev/null; then
+        echo "Fehler: Aktualisierung der Kernel-Modul-Abhängigkeiten fehlgeschlagen." >&2
+    fi
+
     echo "Systembereinigung abgeschlossen."
 }
+
 
 # Hauptprogramm
 main() {
