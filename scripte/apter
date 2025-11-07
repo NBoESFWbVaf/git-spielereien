@@ -33,9 +33,6 @@ show_help() {
 
 # Systempakete aktualisieren, upgraden und bereinigen
 update_system() {
-    if ! create_timeshift_snapshot "Vor Systempaket-Aktualisierung"; then
-        return 1
-    fi
     echo "Aktualisiere Systempakete..."
     if ! sudo apt update; then
         echo "Fehler: apt update fehlgeschlagen." >&2
@@ -61,9 +58,6 @@ update_system() {
 
 # Flatpaks aktualisieren und bereinigen
 update_flatpaks() {
-    if ! create_timeshift_snapshot "Vor Flatpak-Aktualisierung"; then
-        return 1
-    fi
     if command -v flatpak &> /dev/null; then
         echo "Aktualisiere Flatpaks..."
         if ! flatpak update -y; then
@@ -79,9 +73,6 @@ update_flatpaks() {
 
 # Alte Kernel entfernen
 remove_old_kernels() {
-    if ! create_timeshift_snapshot "Vor Kernel-Bereinigung"; then
-        return 1
-    fi
     echo "Suche nach alten Kernels..."
     current_kernel=$(uname -r | sed "s/\([-0-9]*\)-\([^0-9]\+\)/\1/")
     old_kernels=$(dpkg -l 'linux-[ihs]*' | sed '/^ii/!d;/'"$current_kernel"'/d;s/^[^ ]* [^ ]* \([^ ]*\).*/\1/;/[0-9]/!d')
@@ -96,9 +87,6 @@ remove_old_kernels() {
 
 # Snaps aktualisieren und bereinigen
 update_snaps() {
-    if ! create_timeshift_snapshot "Vor Snap-Aktualisierung"; then
-        return 1
-    fi
     if command -v snap &> /dev/null; then
         echo "Aktualisiere Snaps..."
         if ! sudo snap refresh; then
@@ -114,20 +102,14 @@ update_snaps() {
 
 # Temporäre Dateien und Cache bereinigen
 clean_files() {
-    if ! create_timeshift_snapshot "Vor Systembereinigung"; then
-        return 1
-    fi
-
     echo "Bereinige temporäre Dateien und Cache..."
     if ! sudo rm -rf /tmp/* /var/tmp/*; then
         echo "Fehler: Löschen von /tmp/* oder /var/tmp/* fehlgeschlagen." >&2
     fi
-
     echo "Behält nur die letzten 50 MB an Logs"
     if ! sudo journalctl --vacuum-size=50M; then
         echo "Fehler: journalctl --vacuum-size fehlgeschlagen." >&2
     fi
-
     echo "Alte Logs entfernen"
     if ! sudo find /var/log -type f -name "*.log" -exec truncate -s 0 {} \; 2>/dev/null; then
         echo "Fehler: Löschen alter Logs fehlgeschlagen." >&2
@@ -135,24 +117,20 @@ clean_files() {
     if ! sudo find /var/log -type f -name "*.gz" -delete 2>/dev/null; then
         echo "Fehler: Löschen alter komprimierter Logs fehlgeschlagen." >&2
     fi
-
     echo "Bereinige Paketmanager-Caches..."
     if command -v apt &> /dev/null; then
         if ! sudo apt clean && sudo apt autoclean; then
             echo "Fehler: apt clean/autoclean fehlgeschlagen." >&2
         fi
     fi
-
     echo "Bereinige Benutzer-Caches für alle Benutzer..."
     if ! sudo find /home -type d -name ".cache" -exec rm -rf {} +; then
         echo "Fehler: Löschen der Benutzer-Caches fehlgeschlagen." >&2
     fi
-
     echo "Bereinige Thumbnail-Caches für alle Benutzer..."
     if ! sudo find /home -type d -name "thumbnails" -exec rm -rf {} +; then
         echo "Fehler: Löschen der Thumbnail-Caches fehlgeschlagen." >&2
     fi
-
     echo "Bereinige Flatpak-Caches systemweit..."
     if command -v flatpak &> /dev/null; then
         if ! sudo flatpak repair --system; then
@@ -161,7 +139,6 @@ clean_files() {
     else
         echo "Flatpak ist nicht installiert. Überspringe Flatpak-Bereinigung."
     fi
-
     if command -v docker &> /dev/null; then
         echo "Unnötige Docker-Container, Images und Volumes löschen"
         if ! sudo docker system prune -a; then
@@ -173,7 +150,6 @@ clean_files() {
     echo "Systembereinigung abgeschlossen."
 }
 
-
 # Hauptprogramm
 main() {
     local do_system=false
@@ -181,10 +157,12 @@ main() {
     local do_kernel=false
     local do_snap=false
     local do_clean=false
+
     # Wenn keine Parameter übergeben wurden, Hilfe anzeigen
     if [ $# -eq 0 ]; then
         show_help
     fi
+
     # Parameter auswerten
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -193,18 +171,23 @@ main() {
             -k|--kernel)   do_kernel=true ;;
             -n|--snap)     do_snap=true ;;
             -c|--clean)    do_clean=true ;;
-            -a|--all)      do_system=true; do_flatpak=true; do_snap=true; do_clean=true ;;
+            -a|--all)      do_system=true; do_flatpak=true; do_snap=true; do_kernel=true; do_clean=true ;;
             -h|--help)     show_help ;;
             *)              echo "Unbekannte Option: $1"; show_help ;;
         esac
         shift
     done
+
+    # Einmalig zu Beginn einen Timeshift-Snapshot erstellen, falls Timeshift installiert ist
+    create_timeshift_snapshot "Vor Systemwartung"
+
     # Aktionen ausführen
-    if $do_system;  then update_system;     fi
-    if $do_flatpak; then update_flatpaks;   fi
-    if $do_kernel;  then remove_old_kernels; fi
-    if $do_snap;    then update_snaps;      fi
-    if $do_clean;   then clean_files;        fi
+    if $do_system;   then update_system;     fi
+    if $do_flatpak;  then update_flatpaks;   fi
+    if $do_kernel;   then remove_old_kernels; fi
+    if $do_snap;     then update_snaps;      fi
+    if $do_clean;    then clean_files;        fi
+
     echo "Systemwartung abgeschlossen."
 }
 
