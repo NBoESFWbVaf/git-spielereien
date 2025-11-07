@@ -117,14 +117,17 @@ clean_files() {
     if ! create_timeshift_snapshot "Vor Systembereinigung"; then
         return 1
     fi
+
     echo "Bereinige temporäre Dateien und Cache..."
     if ! sudo rm -rf /tmp/* /var/tmp/*; then
         echo "Fehler: Löschen von /tmp/* oder /var/tmp/* fehlgeschlagen." >&2
     fi
+
     echo "Behält nur die letzten 50 MB an Logs"
     if ! sudo journalctl --vacuum-size=50M; then
         echo "Fehler: journalctl --vacuum-size fehlgeschlagen." >&2
     fi
+
     echo "Alte Logs entfernen"
     if ! sudo find /var/log -type f -name "*.log" -exec truncate -s 0 {} \; 2>/dev/null; then
         echo "Fehler: Löschen alter Logs fehlgeschlagen." >&2
@@ -132,6 +135,41 @@ clean_files() {
     if ! sudo find /var/log -type f -name "*.gz" -delete 2>/dev/null; then
         echo "Fehler: Löschen alter komprimierter Logs fehlgeschlagen." >&2
     fi
+
+    echo "Bereinige Paketmanager-Caches..."
+    if command -v apt &> /dev/null; then
+        if ! sudo apt clean && sudo apt autoclean; then
+            echo "Fehler: apt clean/autoclean fehlgeschlagen." >&2
+        fi
+    elif command -v pacman &> /dev/null; then
+        if ! sudo pacman -Scc; then
+            echo "Fehler: pacman -Scc fehlgeschlagen." >&2
+        fi
+    elif command -v dnf &> /dev/null; then
+        if ! sudo dnf clean all; then
+            echo "Fehler: dnf clean all fehlgeschlagen." >&2
+        fi
+    fi
+
+    echo "Bereinige Benutzer-Caches für alle Benutzer..."
+    if ! sudo find /home -type d -name ".cache" -exec rm -rf {} +; then
+        echo "Fehler: Löschen der Benutzer-Caches fehlgeschlagen." >&2
+    fi
+
+    echo "Bereinige Thumbnail-Caches für alle Benutzer..."
+    if ! sudo find /home -type d -name "thumbnails" -exec rm -rf {} +; then
+        echo "Fehler: Löschen der Thumbnail-Caches fehlgeschlagen." >&2
+    fi
+
+    echo "Bereinige Flatpak-Caches systemweit..."
+    if command -v flatpak &> /dev/null; then
+        if ! sudo flatpak repair --system; then
+            echo "Fehler: flatpak repair --system fehlgeschlagen." >&2
+        fi
+    else
+        echo "Flatpak ist nicht installiert. Überspringe Flatpak-Bereinigung."
+    fi
+
     if command -v docker &> /dev/null; then
         echo "Unnötige Docker-Container, Images und Volumes löschen"
         if ! sudo docker system prune -a; then
@@ -140,7 +178,15 @@ clean_files() {
     else
         echo "Docker ist nicht installiert. Überspringe Docker-Bereinigung."
     fi
+
+    echo "DNS-Cache leeren..."
+    if ! sudo systemd-resolve --flush-caches; then
+        echo "Fehler: systemd-resolve --flush-caches fehlgeschlagen." >&2
+    fi
+
+    echo "Systembereinigung abgeschlossen."
 }
+
 
 # Hauptprogramm
 main() {
