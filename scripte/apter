@@ -141,14 +141,6 @@ clean_files() {
         if ! sudo apt clean && sudo apt autoclean; then
             echo "Fehler: apt clean/autoclean fehlgeschlagen." >&2
         fi
-    elif command -v pacman &> /dev/null; then
-        if ! sudo pacman -Scc; then
-            echo "Fehler: pacman -Scc fehlgeschlagen." >&2
-        fi
-    elif command -v dnf &> /dev/null; then
-        if ! sudo dnf clean all; then
-            echo "Fehler: dnf clean all fehlgeschlagen." >&2
-        fi
     fi
 
     echo "Bereinige Benutzer-Caches für alle Benutzer..."
