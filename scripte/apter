@@ -170,12 +170,6 @@ clean_files() {
     else
         echo "Docker ist nicht installiert. Überspringe Docker-Bereinigung."
     fi
-
-    echo "DNS-Cache leeren..."
-    if ! sudo systemd-resolve --flush-caches; then
-        echo "Fehler: systemd-resolve --flush-caches fehlgeschlagen." >&2
-    fi
-
     echo "Systembereinigung abgeschlossen."
 }
 
@@ -216,4 +210,3 @@ main() {
 
 # Skript ausführen
 main "$@"
-
